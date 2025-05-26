@@ -6,3 +6,8 @@ langchain-community
 faiss-cpu
 sentence-transformers
 pydrive
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+
