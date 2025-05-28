@@ -12,7 +12,7 @@ SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 FOLDER_NAME = "Audit_FAISS_DB"
 
 def get_authenticated_service():
-    service_account_info = json.loads(st.secrets["gdrive_service_account"])
+    service_account_info = st.secrets["gdrive_service_account"]
     credentials = service_account.Credentials.from_service_account_info(
         service_account_info, scopes=SCOPES
     )
