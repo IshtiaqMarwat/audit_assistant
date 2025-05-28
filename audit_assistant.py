@@ -17,7 +17,7 @@ if not openai_api_key:
     st.stop()
 
 # 📁 FAISS DB path (Google Drive mounted path)
-DB_DIR = "/content/drive/MyDrive/staudit_faiss_db"  # Change this if needed
+DB_DIR = "vector_store"  # Change this if needed
 
 # 🧠 LLM Setup
 llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, api_key=openai_api_key)
