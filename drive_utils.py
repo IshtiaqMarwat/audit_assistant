@@ -52,6 +52,8 @@ def upload_faiss_to_drive(local_folder_path):
     folder_id = get_drive_folder_id(service)
 
     zip_folder(local_folder_path, ZIP_NAME)
+    st.info(f"Zip file created: {ZIP_NAME}")
+    st.info(f"Zip size: {os.path.getsize(ZIP_NAME)} bytes")
 
     # Remove existing file with same name
     existing = service.files().list(
