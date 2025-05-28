@@ -10,82 +10,90 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.memory import ConversationBufferMemory
 
-from gdrive_utils import authenticate_gdrive, upload_faiss_to_drive, download_faiss_from_drive
-
-# 🔐 API Key
-if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Please set your OpenAI API key in .streamlit/secrets.toml")
+# 🔐 Load your OpenAI API key from Streamlit secrets or environment variable
+openai_api_key = st.secrets["OPENAI_API_KEY"] if "OPENAI_API_KEY" in st.secrets else os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    st.error("🔐 Please set your OpenAI API key in .streamlit/secrets.toml or as an environment variable.")
     st.stop()
 
-openai_api_key = st.secrets["OPENAI_API_KEY"]
+# 📁 FAISS DB path (Google Drive mounted path)
+DB_DIR = "/content/drive/MyDrive/staudit_faiss_db"  # Change this if needed
 
-# 🤖 LLM Setup
-llm = ChatOpenAI(
-    model="gpt-3.5-turbo",
-    temperature=0,
-    api_key=openai_api_key,
-    streaming=True
-)
-
-# 🧠 Memory
+# 🧠 LLM Setup
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, api_key=openai_api_key)
 memory = ConversationBufferMemory(return_messages=True, memory_key="chat_history")
-
-# 📂 Constants
-DB_DIR = "vector_store"
-DRIVE_FILE_NAME = "faiss_vector_store.zip"
-
-# 📄 PDF Text Extractor
-def extract_text_from_pdf(pdf_file):
-    reader = PyPDF2.PdfReader(pdf_file)
-    return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
-
-# 🔍 Text Split & Embedding
 text_splitter = CharacterTextSplitter(separator="\n", chunk_size=2000, chunk_overlap=200, length_function=len)
 embeddings = HuggingFaceEmbeddings()
 
-# 🔄 Load or Create FAISS
-def load_or_create_faiss(chunks):
-    drive = authenticate_gdrive()
+retriever = None
+qa_chain = None
 
-    if download_faiss_from_drive(drive, file_title=DRIVE_FILE_NAME, dest_dir=DB_DIR):
-        st.success("✅ FAISS DB loaded from Google Drive.")
-        return FAISS.load_local(DB_DIR, embeddings)
-    else:
-        st.warning("🧠 No existing DB found, creating one.")
-        if os.path.exists(DB_DIR): shutil.rmtree(DB_DIR)
-        db = FAISS.from_texts(chunks, embeddings)
+# 📄 Extract text from PDF
+def extract_text_from_pdf(file):
+    try:
+        reader = PyPDF2.PdfReader(file)
+        return "\n".join(page.extract_text() or '' for page in reader.pages)
+    except Exception as e:
+        raise ValueError(f"PDF read error: {str(e)}")
+
+# 🔁 Create or update FAISS DB
+def setup_db_from_pdf(pdf):
+    global retriever, qa_chain
+    try:
+        text = extract_text_from_pdf(pdf)
+        chunks = text_splitter.split_text(text)
+        new_db = FAISS.from_texts(chunks, embeddings)
+
+        if os.path.exists(DB_DIR):
+            existing_db = FAISS.load_local(DB_DIR, embeddings, allow_dangerous_deserialization=True)
+            existing_db.merge_from(new_db)
+            db = existing_db
+            status = "📚 Merged new PDF into existing FAISS DB."
+        else:
+            db = new_db
+            status = "🆕 Created new FAISS DB."
+
         db.save_local(DB_DIR)
-        upload_faiss_to_drive(DB_DIR, drive, file_name=DRIVE_FILE_NAME)
-        st.success("✅ New FAISS DB created and uploaded to Drive.")
-        return db
+        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+        qa_chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=retriever, memory=memory)
+
+        return status
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+# ❓ Question handler
+def ask_question(question):
+    global retriever, qa_chain
+    if qa_chain is None:
+        if os.path.exists(DB_DIR):
+            try:
+                db = FAISS.load_local(DB_DIR, embeddings, allow_dangerous_deserialization=True)
+                retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+                qa_chain = ConversationalRetrievalChain.from_llm(llm=llm, retriever=retriever, memory=memory)
+            except Exception as e:
+                return f"❌ Failed to load FAISS DB: {str(e)}"
+        else:
+            return "⚠️ Please upload a PDF first."
+
+    try:
+        return qa_chain.run(question)
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
 
 # 🌐 Streamlit UI
+st.set_page_config(page_title="AI Audit Assistant", page_icon="🕵️")
 st.title("🕵️ AI Audit Assistant")
-st.markdown("Upload a PDF document and ask audit questions based on it.")
+st.markdown("Upload multiple audit-related PDFs and ask document-aware questions.")
 
 uploaded_file = st.file_uploader("📎 Upload Audit PDF", type="pdf")
 
 if uploaded_file:
-    pdf_text = extract_text_from_pdf(uploaded_file)
-    st.success("📖 Document processed!")
+    status = setup_db_from_pdf(uploaded_file)
+    st.success(status)
 
-    chunks = text_splitter.split_text(pdf_text)
-    db = load_or_create_faiss(chunks)
+user_question = st.text_input("💬 Ask a question about your documents:")
 
-    retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
-
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        memory=memory
-    )
-
-    user_question = st.text_input("💬 Ask a question about the audit document:")
-
-    if user_question:
-        with st.spinner("Thinking like a real auditor..."):
-            try:
-                answer = qa_chain.run(user_question)
-                st.text_area("📘 Audit Assistant Answer", value=answer, height=200)
-            except Exception as e:
-                st.error(f"Error: {e}")
+if user_question:
+    with st.spinner("Thinking like an auditor..."):
+        answer = ask_question(user_question)
+        st.text_area("📘 Answer", value=answer, height=250)
