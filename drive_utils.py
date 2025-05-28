@@ -83,7 +83,7 @@ def upload_faiss_to_drive(local_folder_path):
     try:
         service.permissions().create(
             fileId=file_id,
-            body={"type": "user", "role": "reader", "emailAddress": "aa@gmail.com"},
+            body={"type": "user", "role": "reader", "emailAddress": "yahoo@gmaillll.com"},
             fields="id"
         ).execute()
         st.success("Shared with your email too!")
