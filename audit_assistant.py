@@ -50,6 +50,7 @@ def update_faiss_from_pdf(pdf):
             msg = "🆕 Created new FAISS DB from uploaded PDF."
 
         db.save_local(TEMP_DIR)
+        st.info(f"Saving FAISS DB to local folder: {TEMP_DIR}")
         upload_faiss_to_drive(TEMP_DIR)
         shutil.rmtree(TEMP_DIR)
 
