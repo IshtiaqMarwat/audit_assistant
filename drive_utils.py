@@ -1,9 +1,10 @@
 import os
 import zipfile
 import streamlit as st
+import json
 import io
 
-from google_auth_oauthlib.flow import Flow
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -11,34 +12,23 @@ SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 FOLDER_NAME = "Audit_FAISS_DB"
 
 def get_authenticated_service():
-    creds_data = st.secrets["google_oauth"]
-    flow = Flow.from_client_config(
-        {
-            "installed": {
-                "client_id": creds_data["client_id"],
-                "client_secret": creds_data["client_secret"],
-                "auth_uri": creds_data["auth_uri"],
-                "token_uri": creds_data["token_uri"],
-                "auth_provider_x509_cert_url": creds_data["auth_provider_x509_cert_url"],
-                "redirect_uris": [creds_data["redirect_uri"]]
-            }
-        },
-        scopes=SCOPES
+    service_account_info = json.loads(st.secrets["gdrive_service_account"])
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info, scopes=SCOPES
     )
-    flow.run_local_server(port=0)
-    creds = flow.credentials
-    return build("drive", "v3", credentials=creds)
+    return build("drive", "v3", credentials=credentials)
 
 def get_drive_folder_id(service):
-    response = service.files().list(
+    results = service.files().list(
         q=f"mimeType='application/vnd.google-apps.folder' and name='{FOLDER_NAME}' and trashed=false",
         spaces='drive', fields='files(id, name)'
     ).execute()
-    folders = response.get("files", [])
+    folders = results.get("files", [])
     if folders:
         return folders[0]["id"]
-    metadata = {"name": FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"}
-    folder = service.files().create(body=metadata, fields="id").execute()
+
+    folder_metadata = {"name": FOLDER_NAME, "mimeType": "application/vnd.google-apps.folder"}
+    folder = service.files().create(body=folder_metadata, fields="id").execute()
     return folder.get("id")
 
 def zip_folder(folder_path, zip_name):
@@ -58,9 +48,8 @@ def upload_faiss_to_drive(folder_path, zip_name):
     folder_id = get_drive_folder_id(service)
     zip_folder(folder_path, zip_name)
 
-    # Delete old copy
-    results = service.files().list(q=f"name='{zip_name}' and '{folder_id}' in parents and trashed=false").execute()
-    for file in results.get("files", []):
+    existing_files = service.files().list(q=f"name='{zip_name}' and '{folder_id}' in parents").execute()
+    for file in existing_files.get("files", []):
         service.files().delete(fileId=file["id"]).execute()
 
     file_metadata = {"name": zip_name, "parents": [folder_id]}
@@ -72,7 +61,7 @@ def upload_faiss_to_drive(folder_path, zip_name):
 def download_faiss_from_drive(zip_name, dest_dir):
     service = get_authenticated_service()
     folder_id = get_drive_folder_id(service)
-    files = service.files().list(q=f"name='{zip_name}' and '{folder_id}' in parents and trashed=false").execute().get("files", [])
+    files = service.files().list(q=f"name='{zip_name}' and '{folder_id}' in parents").execute().get("files", [])
     if not files:
         return False
 
