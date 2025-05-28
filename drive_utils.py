@@ -1,16 +1,15 @@
 import os
 import zipfile
-import json
-import io
 import streamlit as st
 
-from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+DB_DIR = "/content/drive/MyDrive/vectordbst"
 ZIP_FILENAME = "faiss_vector_store.zip"
+ZIP_PATH = os.path.join("/content/drive/MyDrive", ZIP_FILENAME)
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 def get_authenticated_service():
     oauth_data = st.secrets["google_oauth"]
@@ -44,16 +43,16 @@ def unzip_file(zip_path, dest_dir):
     with zipfile.ZipFile(zip_path, 'r') as zipf:
         zipf.extractall(dest_dir)
 
-def upload_faiss_to_drive(folder_path):
+def upload_faiss_to_drive():
     service = get_authenticated_service()
-    zip_folder(folder_path, ZIP_FILENAME)
+    zip_folder(DB_DIR, ZIP_PATH)
     file_metadata = {'name': ZIP_FILENAME}
-    media = MediaFileUpload(ZIP_FILENAME, mimetype='application/zip')
+    media = MediaFileUpload(ZIP_PATH, mimetype='application/zip')
     uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    os.remove(ZIP_FILENAME)
+    os.remove(ZIP_PATH)
     return uploaded_file.get('id')
 
-def download_faiss_from_drive(dest_dir):
+def download_faiss_from_drive():
     service = get_authenticated_service()
     results = service.files().list(q=f"name='{ZIP_FILENAME}'", spaces='drive').execute()
     items = results.get('files', [])
@@ -61,12 +60,11 @@ def download_faiss_from_drive(dest_dir):
         return False
     file_id = items[0]['id']
     request = service.files().get_media(fileId=file_id)
-    fh = open(ZIP_FILENAME, 'wb')
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    fh.close()
-    unzip_file(ZIP_FILENAME, dest_dir)
-    os.remove(ZIP_FILENAME)
+    with open(ZIP_PATH, 'wb') as fh:
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+    unzip_file(ZIP_PATH, DB_DIR)
+    os.remove(ZIP_PATH)
     return True
