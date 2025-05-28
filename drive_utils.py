@@ -55,7 +55,7 @@ def upload_faiss_to_drive(local_folder_path):
     st.info(f"Zip file created: {ZIP_NAME}")
     st.info(f"Zip size: {os.path.getsize(ZIP_NAME)} bytes")
 
-    # Remove existing file with same name
+    # Remove any existing zip in this folder
     existing = service.files().list(
         q=f"name='{ZIP_NAME}' and '{folder_id}' in parents and trashed=false",
         spaces="drive", fields="files(id, name)"
@@ -73,16 +73,14 @@ def upload_faiss_to_drive(local_folder_path):
     os.remove(ZIP_NAME)
 
     file_id = uploaded.get("id")
-    file_url = f"https://drive.google.com/file/d/{file_id}/view"
+    folder_link = f"https://drive.google.com/drive/folders/{folder_id}"
+    file_link = f"https://drive.google.com/file/d/{file_id}/view"
 
-    # OPTIONAL: Share file with your Gmail (if needed)
-    # service.permissions().create(
-    #     fileId=file_id,
-    #     body={"type": "user", "role": "reader", "emailAddress": "your.email@gmail.com"},
-    #     fields="id"
-    # ).execute()
+    st.success(f"✅ FAISS DB uploaded to Drive folder: [Open Folder]({folder_link})")
+    st.info(f"🔗 [View File]({file_link})")
 
-    return f"✅ FAISS DB uploaded to Google Drive: {file_url}"
+    return f"✅ FAISS uploaded: {file_link}"
+
 
 # 📥 Download and unzip FAISS DB
 def download_faiss_from_drive(dest_dir):
