@@ -51,11 +51,12 @@ def upload_faiss_to_drive(local_folder_path):
     service = get_authenticated_service()
     folder_id = get_drive_folder_id(service)
 
+    # 🗜️ Zip the FAISS DB
     zip_folder(local_folder_path, ZIP_NAME)
     st.info(f"Zip file created: {ZIP_NAME}")
     st.info(f"Zip size: {os.path.getsize(ZIP_NAME)} bytes")
 
-    # Remove any existing zip in this folder
+    # ❌ Delete existing file with same name
     existing = service.files().list(
         q=f"name='{ZIP_NAME}' and '{folder_id}' in parents and trashed=false",
         spaces="drive", fields="files(id, name)"
@@ -64,6 +65,7 @@ def upload_faiss_to_drive(local_folder_path):
     for file in existing.get("files", []):
         service.files().delete(fileId=file["id"]).execute()
 
+    # ✅ Upload to Drive folder
     file_metadata = {"name": ZIP_NAME, "parents": [folder_id]}
     media = MediaFileUpload(ZIP_NAME, mimetype="application/zip")
     uploaded = service.files().create(
@@ -72,15 +74,27 @@ def upload_faiss_to_drive(local_folder_path):
 
     os.remove(ZIP_NAME)
 
+    # 🔗 Generate links
     file_id = uploaded.get("id")
-    folder_link = f"https://drive.google.com/drive/folders/{folder_id}"
     file_link = f"https://drive.google.com/file/d/{file_id}/view"
+    folder_link = f"https://drive.google.com/drive/folders/{folder_id}"
 
-    st.success(f"✅ FAISS DB uploaded to Drive folder: [Open Folder]({folder_link})")
-    st.info(f"🔗 [View File]({file_link})")
+    # ✅ Optional: Share with your Gmail
+    try:
+        service.permissions().create(
+            fileId=file_id,
+            body={"type": "user", "role": "reader", "emailAddress": "engrishtiaq455@gmail.com"},
+            fields="id"
+        ).execute()
+        st.success("Shared with your email too!")
+    except Exception as e:
+        st.warning(f"Could not share file: {e}")
 
-    return f"✅ FAISS uploaded: {file_link}"
+    # 🔎 Print access links
+    st.success(f"✅ FAISS DB uploaded to Google Drive folder: [Open Folder]({folder_link})")
+    st.info(f"📁 View file: [Click here]({file_link})")
 
+    return file_link
 
 # 📥 Download and unzip FAISS DB
 def download_faiss_from_drive(dest_dir):
